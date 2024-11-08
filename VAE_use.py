@@ -1,10 +1,7 @@
-import os
 import torch
 import torch.nn as nn
 from PIL import Image
-import numpy as np
 import torchvision.transforms as transforms
-from sklearn.cluster import KMeans
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
