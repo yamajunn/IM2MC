@@ -102,7 +102,7 @@ def guided_inpainting_loss(recon_x, x, mask, mu, logvar):
 # -------------------------
 # 画像補完関数
 # -------------------------
-def inpaint_image(model, missing_img, mask_img, device):
+def inpaint_image(model, missing_img, mask_img, device, context_size=10):
     model.eval()
     missing_img = missing_img.to(device).unsqueeze(0)
     mask_img = mask_img.to(device).unsqueeze(0)
@@ -112,8 +112,16 @@ def inpaint_image(model, missing_img, mask_img, device):
         reconstructed_img, _, _ = model(input_img)
     
     # マスク部分を周囲のピクセルに基づいて補完
-    inpainted_img = missing_img * (1 - mask_img) + reconstructed_img * mask_img
-    inpainted_img = inpainted_img * mask_img + missing_img * (1 - mask_img)
+    inpainted_img = missing_img.clone()
+    padding = context_size // 2
+    mask_dilated = F.conv2d(F.pad(mask_img, (padding, padding, padding, padding)), torch.ones(1, 1, context_size, context_size, device=device), padding=0)
+    mask_dilated = (mask_dilated > 0).float()
+    mask_dilated = F.interpolate(mask_dilated, size=missing_img.shape[2:], mode='nearest')  # サイズを一致させる
+    
+    # 周囲のピクセルに基づいて補完
+    context_mask = mask_dilated - mask_img
+    inpainted_img = inpainted_img * (1 - mask_img) + reconstructed_img * mask_img
+    inpainted_img = inpainted_img * (1 - context_mask) + missing_img * context_mask
     
     return inpainted_img.squeeze(0).cpu()
 
@@ -137,6 +145,6 @@ missing_img = transform(missing_img)
 mask_img = transform(mask_img)
 
 # 補完
-reconstructed_img = inpaint_image(model, missing_img, mask_img, device)
+reconstructed_img = inpaint_image(model, missing_img, mask_img, device, context_size=10)
 reconstructed_img_pil = transforms.ToPILImage()(reconstructed_img)
 reconstructed_img_pil.save("completed_image.png")
