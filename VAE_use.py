@@ -32,7 +32,7 @@ class AttentionBlock(nn.Module):
         return out
 
 class UNetVAE(nn.Module):
-    def __init__(self, latent_dim=128):
+    def __init__(self, latent_dim=128, num_attention_blocks=3):
         super(UNetVAE, self).__init__()
         
         # Encoder部分
@@ -43,6 +43,11 @@ class UNetVAE(nn.Module):
             nn.ReLU(),
             nn.Conv2d(64, 128, 4, stride=2, padding=1),  # encoder.4
             nn.ReLU()
+        )
+
+        # Attention Blocks
+        self.attention_blocks = nn.Sequential(
+            *[AttentionBlock(128) for _ in range(num_attention_blocks)]
         )
 
         # 潜在変数用の線形層
@@ -64,6 +69,7 @@ class UNetVAE(nn.Module):
 
     def encode(self, x):
         x = self.encoder(x)
+        x = self.attention_blocks(x)  # 複数のAttention Blockを追加
         x = x.view(x.size(0), -1)
         mu = self.fc_mu(x)
         logvar = self.fc_logvar(x)
@@ -71,7 +77,7 @@ class UNetVAE(nn.Module):
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
+        eps = torch.randn_like(std) * 1.5  # ランダム性を強化
         return mu + eps * std
 
     def decode(self, z):
@@ -105,7 +111,11 @@ def inpaint_image(model, missing_img, mask_img, device):
     with torch.no_grad():
         reconstructed_img, _, _ = model(input_img)
     
-    return reconstructed_img.squeeze(0).cpu()
+    # マスク部分を周囲のピクセルに基づいて補完
+    inpainted_img = missing_img * (1 - mask_img) + reconstructed_img * mask_img
+    inpainted_img = inpainted_img * mask_img + missing_img * (1 - mask_img)
+    
+    return inpainted_img.squeeze(0).cpu()
 
 # -------------------------
 # 実行の準備
@@ -115,12 +125,13 @@ latent_dim = 128
 model = UNetVAE(latent_dim=latent_dim).to(device)
 
 # 学習済みモデルのロード
-model.load_state_dict(torch.load("model_checkpoints/vae_model_epoch_100.pth"))
+checkpoint = torch.load("model_checkpoints/vae_model_epoch_100.pth", weights_only=True)
+model.load_state_dict(checkpoint, strict=False)  # strict=Falseで新しいパラメータを初期化
 model.eval()
 
 # マスク画像、欠損画像を読み込み、補完実行
-missing_img = Image.open("0.png").convert("RGBA")
-mask_img = Image.open("0_mask.png").convert("L")
+missing_img = Image.open("1.png").convert("RGBA")
+mask_img = Image.open("1_mask.png").convert("L")
 transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
 missing_img = transform(missing_img)
 mask_img = transform(mask_img)
