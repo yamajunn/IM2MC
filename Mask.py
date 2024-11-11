@@ -50,9 +50,13 @@ def create_missing_images(src_folder, dest_folder, num_samples, mask_size=(16, 1
         mask.save(os.path.join(mask_folder, img_name))
 
 # 使用例
-src_folder = "/Users/chinq500/Desktop/archive/Skins/"  # 元の画像フォルダ
-dest_folder = "/Users/chinq500/Desktop/archive/Dest/"  # 欠損画像の保存フォルダ
-mask_folder = "/Users/chinq500/Desktop/archive/Masks/"  # マスク画像の保存フォルダ
+# src_folder = "/Users/chinq500/Desktop/archive/Skins/"  # 元の画像フォルダ
+# dest_folder = "/Users/chinq500/Desktop/archive/Dest/"  # 欠損画像の保存フォルダ
+# mask_folder = "/Users/chinq500/Desktop/archive/Masks/"  # マスク画像の保存フォルダ
+src_folder = "C:/Users/Owner/Desktop/archive/Skins/"  # 元の画像フォルダ
+dest_folder = "C:/Users/Owner/Desktop/archive/Dest/"  # 欠損画像の保存フォルダ
+mask_folder = "C:/Users/Owner/Desktop/archive/Masks/"  # マスク画像の保存フォルダ
+
 num_samples = 2  # ランダムに選択する画像数
 mask_size = (16, 16)  # 欠損部分のサイズ
 

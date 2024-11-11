@@ -187,17 +187,17 @@ def inpaint_image(model, missing_img, mask_img, device, context_size=10, iterati
 # 実行の準備
 # -------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-latent_dim = 128
+latent_dim = 256
 model = UNetVAE(latent_dim=latent_dim).to(device)
 
 # 学習済みモデルのロード
-checkpoint = torch.load("model_checkpoints/vae_model_epoch_100.pth", weights_only=True)
+checkpoint = torch.load("model_checkpoints/vae_model_epoch_2.pth", weights_only=True)
 model.load_state_dict(checkpoint, strict=False)  # strict=Falseで新しいパラメータを初期化
 model.eval()
 
 # マスク画像、欠損画像を読み込み、補完実行
 missing_img = Image.open("0.png").convert("RGBA")
-mask_img = Image.open("1_mask.png").convert("L")
+mask_img = Image.open("0_mask.png").convert("L")
 transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
 missing_img = transform(missing_img)
 mask_img = transform(mask_img)

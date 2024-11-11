@@ -100,7 +100,7 @@ def vae_loss(recon_x, x, mu, logvar):
     kld_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     return bce_loss + kld_loss
 
-def train(model, dataloader, optimizer, num_epochs=10, save_interval=20):
+def train(model, dataloader, optimizer, num_epochs=10, save_interval=2):
     model.train()
 
     # 保存ディレクトリの作成
@@ -137,9 +137,9 @@ def train(model, dataloader, optimizer, num_epochs=10, save_interval=20):
 # パラメータの設定と実行
 # -------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-latent_dim = 128
-batch_size = 32
-num_epochs = 200
+latent_dim = 256
+batch_size = 64
+num_epochs = 100
 learning_rate = 1e-3
 
 transform = transforms.Compose([
@@ -147,13 +147,17 @@ transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-max_samples = 100000
-
-dataset = ImageDataset(complete_dir="/Users/chinq500/Desktop/archive/Skins",
-                       missing_dir="/Users/chinq500/Desktop/archive/Dest",
-                       mask_dir="/Users/chinq500/Desktop/archive/Masks",
-                       transform=transform,
-                       max_samples=max_samples)
+max_samples = 940000
+dataset = ImageDataset(
+                    # complete_dir="/Users/chinq500/Desktop/archive/Skins",
+                    # missing_dir="/Users/chinq500/Desktop/archive/Dest",
+                    # mask_dir="/Users/chinq500/Desktop/archive/Masks",
+                    complete_dir="C:/Users/Owner/Desktop/archive/Skins/",
+                    missing_dir="C:/Users/Owner/Desktop/archive/Dest/",
+                    mask_dir="C:/Users/Owner/Desktop/archive/Masks/",
+                    transform=transform,
+                    max_samples=max_samples
+                )
 
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
