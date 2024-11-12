@@ -191,7 +191,7 @@ latent_dim = 256
 model = UNetVAE(latent_dim=latent_dim).to(device)
 
 # 学習済みモデルのロード
-checkpoint = torch.load("model_checkpoints/vae_model_epoch_8.pth", weights_only=True)
+checkpoint = torch.load("model_checkpoints/vae_model_epoch_8.pth", map_location=torch.device('cpu'))
 model.load_state_dict(checkpoint, strict=False)  # strict=Falseで新しいパラメータを初期化
 model.eval()
 
@@ -206,6 +206,6 @@ mask_img = transform(mask_img)
 palette = prepare_color_palette(missing_img.permute(1, 2, 0).cpu().numpy(), num_colors=1)
 
 # 補完 context=前後関係, iterations=反復回数, extend_size=拡張サイズ, blend_ratio=合成比率
-reconstructed_img = inpaint_image(model, missing_img, mask_img, device, context_size=16, iterations=10, extend_size=2, blend_ratio=0.2, palette=palette)
+reconstructed_img = inpaint_image(model, missing_img, mask_img, device, context_size=64, iterations=10, extend_size=2, blend_ratio=0.2, palette=palette)
 reconstructed_img_pil = transforms.ToPILImage()(reconstructed_img)
 reconstructed_img_pil.save("completed_image.png")
