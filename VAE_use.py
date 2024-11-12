@@ -120,7 +120,7 @@ def add_image_colors_to_palette(image, palette):
     return combined_palette
 
 # 画像補完関数
-def inpaint_image(model, missing_img, mask_img, device, context_size=10, iterations=5, extend_size=5, blend_ratio=0.5, palette=None):
+def inpaint_image(model, missing_img, mask_img, device, iterations=5, extend_size=5, blend_ratio=0.5, palette=None):
     model.eval()
     missing_img = missing_img.to(device).unsqueeze(0)
     mask_img = mask_img.to(device).unsqueeze(0)
@@ -138,9 +138,7 @@ def inpaint_image(model, missing_img, mask_img, device, context_size=10, iterati
     
     # マスク部分を周囲のピクセルに基づいて補完
     inpainted_img = missing_img.clone()
-    padding = context_size // 2
-    mask_dilated = F.conv2d(F.pad(mask_img, (padding, padding, padding, padding)), torch.ones(1, 1, context_size, context_size, device=device), padding=0)
-    mask_dilated = (mask_dilated > 0).float()
+    mask_dilated = (mask_img > 0).float()
     mask_dilated = F.interpolate(mask_dilated, size=missing_img.shape[2:], mode='nearest')  # サイズを一致させる
     
     # 周囲のピクセルに基づいて補完
@@ -171,13 +169,15 @@ def inpaint_image(model, missing_img, mask_img, device, context_size=10, iterati
     # カラーパレットを使用して補完
     if palette is not None:
         inpainted_img_np = inpainted_img.squeeze(0).permute(1, 2, 0).cpu().numpy()
+        mask_np = mask_img.squeeze(0).cpu().numpy()
         pixels = inpainted_img_np.reshape(-1, 4)  # RGBA
-        combined_palette = add_image_colors_to_palette(inpainted_img_np, palette)
+        mask_pixels = mask_np.reshape(-1)
         
-        # 各ピクセルをカラーパレットの最も近い色に置き換える
-        distances = np.linalg.norm(pixels[:, None] - combined_palette[None, :], axis=2)
-        nearest_colors = combined_palette[np.argmin(distances, axis=1)]
-        inpainted_img_np = nearest_colors.reshape(inpainted_img_np.shape)
+        # マスク部分のピクセルをカラーパレットの最も近い色に置き換える
+        distances = np.linalg.norm(pixels[:, None] - palette[None, :], axis=2)
+        nearest_colors = palette[np.argmin(distances, axis=1)]
+        pixels[mask_pixels > 0] = nearest_colors[mask_pixels > 0]
+        inpainted_img_np = pixels.reshape(inpainted_img_np.shape)
         
         inpainted_img = torch.tensor(inpainted_img_np).permute(2, 0, 1).unsqueeze(0).to(device)
     
@@ -196,16 +196,16 @@ model.load_state_dict(checkpoint, strict=False)  # strict=Falseで新しいパ�
 model.eval()
 
 # マスク画像、欠損画像を読み込み、補完実行
-missing_img = Image.open("0.png").convert("RGBA")
-mask_img = Image.open("0_mask.png").convert("L")
+missing_img = Image.open("1.png").convert("RGBA")
+mask_img = Image.open("1_mask.png").convert("L")
 transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
 missing_img = transform(missing_img)
 mask_img = transform(mask_img)
 
 # カラーパレットを準備
-palette = prepare_color_palette(missing_img.permute(1, 2, 0).cpu().numpy(), num_colors=1)
+palette = prepare_color_palette(missing_img.permute(1, 2, 0).cpu().numpy(), num_colors=32)
 
 # 補完 context=前後関係, iterations=反復回数, extend_size=拡張サイズ, blend_ratio=合成比率
-reconstructed_img = inpaint_image(model, missing_img, mask_img, device, context_size=64, iterations=10, extend_size=2, blend_ratio=0.2, palette=palette)
+reconstructed_img = inpaint_image(model, missing_img, mask_img, device, iterations=100, extend_size=2, blend_ratio=0.2, palette=palette)
 reconstructed_img_pil = transforms.ToPILImage()(reconstructed_img)
 reconstructed_img_pil.save("completed_image.png")
