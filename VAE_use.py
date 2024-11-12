@@ -191,7 +191,7 @@ latent_dim = 256
 model = UNetVAE(latent_dim=latent_dim).to(device)
 
 # 学習済みモデルのロード
-checkpoint = torch.load("model_checkpoints/vae_model_epoch_2.pth", weights_only=True)
+checkpoint = torch.load("model_checkpoints/vae_model_epoch_8.pth", weights_only=True)
 model.load_state_dict(checkpoint, strict=False)  # strict=Falseで新しいパラメータを初期化
 model.eval()
 
