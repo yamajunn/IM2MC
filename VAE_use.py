@@ -196,14 +196,17 @@ model.load_state_dict(checkpoint, strict=False)  # strict=Falseで新しいパ�
 model.eval()
 
 # マスク画像、欠損画像を読み込み、補完実行
-missing_img = Image.open("1.png").convert("RGBA")
-mask_img = Image.open("1_mask.png").convert("L")
+missing_img = Image.open("_2.png").convert("RGBA")
+mask_img = Image.open("2_mask.png").convert("L")
 transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
 missing_img = transform(missing_img)
 mask_img = transform(mask_img)
 
+# マスク部分を空白にする
+missing_img[3, mask_img.squeeze(0) > 0] = 0
+
 # カラーパレットを準備
-palette = prepare_color_palette(missing_img.permute(1, 2, 0).cpu().numpy(), num_colors=32)
+palette = prepare_color_palette(missing_img.permute(1, 2, 0).cpu().numpy(), num_colors=1024)
 
 # 補完 context=前後関係, iterations=反復回数, extend_size=拡張サイズ, blend_ratio=合成比率
 reconstructed_img = inpaint_image(model, missing_img, mask_img, device, iterations=100, extend_size=2, blend_ratio=0.2, palette=palette)
