@@ -34,44 +34,47 @@ class AttentionBlock(nn.Module):
         return out
 
 class UNetVAE(nn.Module):
-    def __init__(self, latent_dim=128, num_attention_blocks=3):
+    def __init__(self, latent_dim=512):
         super(UNetVAE, self).__init__()
-        
-        # Encoder部分
+        # エンコーダ
         self.encoder = nn.Sequential(
-            nn.Conv2d(5, 32, 4, stride=2, padding=1),  # encoder.0
+            nn.Conv2d(5, 64, 4, stride=2, padding=1),
             nn.ReLU(),
-            nn.Conv2d(32, 64, 4, stride=2, padding=1),  # encoder.2
+            nn.Conv2d(64, 128, 4, stride=2, padding=1),
             nn.ReLU(),
-            nn.Conv2d(64, 128, 4, stride=2, padding=1),  # encoder.4
-            nn.ReLU()
+            nn.Conv2d(128, 256, 4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(256, 512, 4, stride=2, padding=1),
+            nn.ReLU(),
         )
-
-        # Attention Blocks
-        self.attention_blocks = nn.Sequential(
-            *[AttentionBlock(128) for _ in range(num_attention_blocks)]
-        )
-
-        # 潜在変数用の線形層
-        self.fc_mu = nn.Linear(128 * 8 * 8, latent_dim)
-        self.fc_logvar = nn.Linear(128 * 8 * 8, latent_dim)
+        self.fc_mu = nn.Linear(512 * 4 * 4, latent_dim)
+        self.fc_logvar = nn.Linear(512 * 4 * 4, latent_dim)
+        self.fc_decode = nn.Linear(latent_dim, 512 * 4 * 4)
         
-        # デコードのための線形層
-        self.fc_decode = nn.Linear(latent_dim, 128 * 8 * 8)
-        
-        # Decoder部分
+        # デコーダ
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1),  # decoder.0
+            nn.ConvTranspose2d(512, 256, 4, stride=2, padding=1),
             nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1),  # decoder.2
+            nn.ConvTranspose2d(256, 128, 4, stride=2, padding=1),
             nn.ReLU(),
-            nn.ConvTranspose2d(32, 4, 4, stride=2, padding=1),  # decoder.4
+            nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 4, 4, stride=2, padding=1),
+            nn.Sigmoid(),
+        )
+        
+        # スーパーレゾリューション
+        self.super_res = nn.Sequential(
+            nn.Conv2d(4, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 4, kernel_size=3, padding=1),
             nn.Sigmoid()
         )
 
     def encode(self, x):
         x = self.encoder(x)
-        x = self.attention_blocks(x)  # 複数のAttention Blockを追加
         x = x.view(x.size(0), -1)
         mu = self.fc_mu(x)
         logvar = self.fc_logvar(x)
@@ -79,18 +82,21 @@ class UNetVAE(nn.Module):
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std) * 1.5  # ランダム性を強化
+        eps = torch.randn_like(std)
         return mu + eps * std
 
     def decode(self, z):
         z = self.fc_decode(z)
-        z = z.view(z.size(0), 128, 8, 8)
-        return self.decoder(z)
+        z = z.view(z.size(0), 512, 4, 4)
+        x = self.decoder(z)
+        return x
 
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar
+        recon_img = self.decode(z)
+        high_res_img = self.super_res(recon_img)  # 高解像度化
+        return high_res_img, mu, logvar
 
 # -------------------------
 # ガイド付き損失関数
@@ -197,17 +203,17 @@ def inpaint_image(model, missing_img, mask_img, device, iterations=5, extend_siz
 # 実行の準備
 # -------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-latent_dim = 256
+latent_dim = 512
 model = UNetVAE(latent_dim=latent_dim).to(device)
 
 # 学習済みモデルのロード
-checkpoint = torch.load("model_checkpoints/vae_model_epoch_8.pth", weights_only=True, map_location=torch.device('cpu'))
+checkpoint = torch.load("model_checkpoints/vae_model_epoch_100.pth", weights_only=True, map_location=torch.device('cpu'))
 model.load_state_dict(checkpoint, strict=False)  # strict=Falseで新しいパラメータを初期化
 model.eval()
 
 # マスク画像、欠損画像を読み込み、補完実行
 missing_img = Image.open("_0.png").convert("RGBA")
-mask_img = Image.open("0_mask.png").convert("L")
+mask_img = Image.open("1_mask.png").convert("L")
 transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
 missing_img = transform(missing_img)
 mask_img = transform(mask_img)

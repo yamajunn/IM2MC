@@ -47,27 +47,44 @@ class ImageDataset(Dataset):
 # -------------------------
 # VAEモデルの定義
 # -------------------------
-class VAE(nn.Module):
-    def __init__(self, latent_dim=128):
-        super(VAE, self).__init__()
+class HighResVAE(nn.Module):
+    def __init__(self, latent_dim=512):
+        super(HighResVAE, self).__init__()
+        # エンコーダ
         self.encoder = nn.Sequential(
-            nn.Conv2d(5, 32, 4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, 4, stride=2, padding=1),
+            nn.Conv2d(5, 64, 4, stride=2, padding=1),
             nn.ReLU(),
             nn.Conv2d(64, 128, 4, stride=2, padding=1),
             nn.ReLU(),
+            nn.Conv2d(128, 256, 4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(256, 512, 4, stride=2, padding=1),
+            nn.ReLU(),
         )
-        self.fc_mu = nn.Linear(128 * 8 * 8, latent_dim)
-        self.fc_logvar = nn.Linear(128 * 8 * 8, latent_dim)
-        self.fc_decode = nn.Linear(latent_dim, 128 * 8 * 8)
+        self.fc_mu = nn.Linear(512 * 4 * 4, latent_dim)
+        self.fc_logvar = nn.Linear(512 * 4 * 4, latent_dim)
+        self.fc_decode = nn.Linear(latent_dim, 512 * 4 * 4)
+        
+        # デコーダ
         self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(512, 256, 4, stride=2, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(256, 128, 4, stride=2, padding=1),
+            nn.ReLU(),
             nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1),
             nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(32, 4, 4, stride=2, padding=1),
+            nn.ConvTranspose2d(64, 4, 4, stride=2, padding=1),
             nn.Sigmoid(),
+        )
+        
+        # スーパーレゾリューション
+        self.super_res = nn.Sequential(
+            nn.Conv2d(4, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 4, kernel_size=3, padding=1),
+            nn.Sigmoid()
         )
 
     def encode(self, x):
@@ -84,13 +101,16 @@ class VAE(nn.Module):
 
     def decode(self, z):
         z = self.fc_decode(z)
-        z = z.view(z.size(0), 128, 8, 8)
-        return self.decoder(z)
+        z = z.view(z.size(0), 512, 4, 4)
+        x = self.decoder(z)
+        return x
 
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar
+        recon_img = self.decode(z)
+        high_res_img = self.super_res(recon_img)  # 高解像度化
+        return high_res_img, mu, logvar
 
 # -------------------------
 # 学習ループの定義
@@ -137,7 +157,7 @@ def train(model, dataloader, optimizer, num_epochs=10, save_interval=2):
 # パラメータの設定と実行
 # -------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-latent_dim = 256
+latent_dim = 512
 batch_size = 64
 num_epochs = 100
 learning_rate = 1e-3
@@ -147,7 +167,8 @@ transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-max_samples = 940000
+# max_samples = 940000
+max_samples = 1000
 dataset = ImageDataset(
                     # complete_dir="/Users/chinq500/Desktop/archive/Skins",
                     # missing_dir="/Users/chinq500/Desktop/archive/Dest",
@@ -161,7 +182,7 @@ dataset = ImageDataset(
 
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-model = VAE(latent_dim=latent_dim).to(device)
+model = HighResVAE(latent_dim=latent_dim).to(device)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 train(model, dataloader, optimizer, num_epochs=num_epochs)
