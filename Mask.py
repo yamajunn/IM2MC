@@ -51,7 +51,7 @@ def process_images(input_folder, output_mask_folder, output_missing_folder, mask
     os.makedirs(output_missing_folder, exist_ok=True)
     
     # 各画像に対して処理を行う
-    for image_file in image_files:
+    for i, image_file in enumerate(image_files):
         image_path = os.path.join(input_folder, image_file)
         
         # 画像を開く
@@ -74,6 +74,8 @@ def process_images(input_folder, output_mask_folder, output_missing_folder, mask
         # 画像を保存
         mask_image.save(os.path.join(output_mask_folder, mask_filename))
         missing_image.save(os.path.join(output_missing_folder, missing_filename))
+        if i % 1000 == 0:
+            print(f"{i+1}/{len(image_files)} images processed.")
 
 # 使用例
 input_folder = "C:/Users/Owner/Desktop/archive/Skins/"  # 入力フォルダのパスを指定
