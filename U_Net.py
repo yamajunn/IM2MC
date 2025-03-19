@@ -1,31 +1,74 @@
-# import tensorflow as tf
-# import cv2
-# import numpy as np
+import tensorflow as tf
+import numpy as np
 
-# # 学習済みモデルの読み込み
-# model = tf.keras.models.load_model('U_NET/UNET.h5')
+def l1_loss(y_true, y_pred):
+    return tf.reduce_mean(tf.abs(y_true - y_pred))
 
-# # 画像とマスクの読み込み
-# image = cv2.imread('Skins/0_missing.png', cv2.IMREAD_UNCHANGED)  # RGBA画像
-# mask = cv2.imread('Skins/0_mask.png', cv2.IMREAD_GRAYSCALE)  # グレースケール
+def l2_loss(y_true, y_pred):
+    return tf.reduce_mean(tf.square(y_true - y_pred))
 
-# # 画像の前処理
-# mask = np.expand_dims(mask, axis=-1)  # チャンネル次元を追加
+def edge_loss(y_true, y_pred):
+    sobel_true = tf.image.sobel_edges(y_true)
+    sobel_pred = tf.image.sobel_edges(y_pred)
 
-# # 入力データ作成
-# masked_image = image * (1 - mask)  # 欠損部分をゼロにする
-# input_data = np.concatenate([image, mask], axis=-1)  # (64,64,5)
-# input_data = np.expand_dims(input_data, axis=0)  # バッチ次元追加
+    # X方向のエッジ差分
+    edge_x_loss = tf.abs(sobel_true[..., 0] - sobel_pred[..., 0])
+    # Y方向のエッジ差分
+    edge_y_loss = tf.abs(sobel_true[..., 1] - sobel_pred[..., 1])
 
-# # モデルによる補完
-# output = model.predict(input_data)
-# output = np.squeeze(output, axis=0)  # バッチ次元を削除
+    # 両方のエッジの差分の平均を損失として使う
+    return tf.reduce_mean(edge_x_loss + edge_y_loss)
 
-# # 結果の保存（RGBA変換）
-# output = (output * 255).astype(np.uint8)
-# cv2.imwrite('Output/output.png', output)
+def mae_loss(y_true, y_pred):
+    return tf.reduce_mean(tf.abs(y_true - y_pred))
 
-# print("補完画像を保存しました: Output/output.png")
+def mse_loss(y_true, y_pred):
+    return tf.reduce_mean(tf.square(y_true - y_pred))
+
+def ssim_loss(y_true, y_pred):
+    # SSIMは[0, 1]範囲の画像に適用されるため、出力を[0, 1]に正規化
+    y_true = (y_true + 1.0) / 2.0  # RGBA画像などの場合、[-1, 1]の範囲から[0, 1]に変換
+    y_pred = (y_pred + 1.0) / 2.0  # 同様に出力を[0, 1]に正規化
+    
+    # SSIMを計算
+    return 1 - tf.reduce_mean(tf.image.ssim(y_true, y_pred, max_val=1.0))
+
+def laplacian_filter(image):
+    """RGBAの各チャンネルにラプラシアンフィルタを適用"""
+    laplacian_kernel = tf.constant([
+        [0,  1,  0],
+        [1, -4,  1],
+        [0,  1,  0]
+    ], dtype=tf.float32)
+    
+    laplacian_kernel = tf.reshape(laplacian_kernel, [3, 3, 1, 1])  # (高さ, 幅, 入力チャンネル, 出力チャンネル)
+    
+    # RGBAの各チャンネルに適用するためのフィルタを作成
+    filters = tf.tile(laplacian_kernel, [1, 1, 4, 1])  # (3, 3, 4, 4) に拡張
+
+    # 4次元テンソル (バッチ, 高さ, 幅, チャンネル) の形状を維持
+    image = tf.expand_dims(image, axis=0)  # バッチ次元を追加 (None, H, W, 4)
+    edges = tf.nn.conv2d(image, filters, strides=[1, 1, 1, 1], padding="SAME")
+
+    return tf.squeeze(edges)  # バッチ次元を削除
+
+def laplacian_loss(y_true, y_pred):
+    edge_true = laplacian_filter(y_true)
+    edge_pred = laplacian_filter(y_pred)
+
+    # L1 損失
+    loss = tf.reduce_mean(tf.abs(edge_true - edge_pred))
+    return loss
+
+def total_loss(y_true, y_pred):
+    loss_l1 = l1_loss(y_true, y_pred)
+    # loss_edge = edge_loss(y_true, y_pred)
+    # loss_mae = mae_loss(y_true, y_pred)
+    # loss_mse = mse_loss(y_true, y_pred)
+    # loss_ssim = ssim_loss(y_true, y_pred)
+    loss_laplacian = laplacian_loss(y_true, y_pred)
+
+    return loss_l1 + 0.2 * loss_laplacian
 
 import tensorflow as tf
 import os
@@ -84,108 +127,39 @@ def prepare_inference_sample(file_name):
     return input_image, file_name
 
 # 保存された学習済みモデルを読み込む
-model = load_model('U_NET/UNET_1000_2.h5')
+# model = load_model('U_NET/UNET_50000.h5')
+# model = load_model('U_NET/UNET.h5', custom_objects={"total_loss": total_loss})
+models_dir = {}
+models_dir["l1"] = load_model("models/l1_loss.h5", custom_objects={"l1_loss": l1_loss})
+models_dir["l2"] = load_model("models/l2_loss.h5", custom_objects={"l2_loss": l2_loss})
+models_dir["edge"] = load_model("models/edge_loss.h5", custom_objects={"edge_loss": edge_loss})
+models_dir["mae"] = load_model("models/mae_loss.h5", custom_objects={"mae_loss": mae_loss})
+models_dir["mae_2"] = load_model("models/mae_2_loss.h5")
+models_dir["mse"] = load_model("models/mse_loss.h5", custom_objects={"mse_loss": mse_loss})
+models_dir["mse_2"] = load_model("models/mse_2_loss.h5")
+models_dir["ssim"] = load_model("models/ssim_loss.h5", custom_objects={"ssim_loss": ssim_loss})
+models_dir["total"] = load_model("models/total_loss.h5", custom_objects={"total_loss": total_loss})
+# models_dir["all"] = model = load_model('U_NET/UNET.h5', custom_objects={'total_loss': total_loss, "edge_loss": edge_loss, "l1_loss": l1_loss, "l2_loss": l2_loss, "mae_loss": mae_loss, "mse_loss": mse_loss, "ssim_loss": ssim_loss, "laplacian_loss": laplacian_loss})
 
 # テスト用画像ファイル名のリストを取得
 test_files = os.listdir(skins_dir)
 test_files = [f for f in test_files if f.endswith('.png')]
 
 # テスト画像数の制限（必要に応じて）
-test_limit = 30
+test_limit = 50
 test_files = test_files[:test_limit]
-
-# 各テスト画像に対して推論を実行
-for file_name in test_files:
-    # 推論用サンプルを準備
-    input_image, file_name_tensor = prepare_inference_sample(file_name)
-    
-    # 推論実行
-    predicted_skin = model.predict(input_image)
-    
-    # バッチ次元を削除
-    predicted_skin = predicted_skin[0]
-    
-    # 元の欠損画像とマスクも読み込む（比較用）
-    missing_path = os.path.join(missing_dir, f"missing_{file_name}")
-    missing_image = load_image(missing_path).numpy()
-    
-    original_path = os.path.join(skins_dir, file_name)
-    original_image = load_image(original_path).numpy()
-    
-    # 結果の可視化と保存
-    plt.figure(figsize=(15, 5))
-    
-    plt.subplot(1, 3, 1)
-    plt.title('欠損画像', fontsize=14)
-    plt.imshow(missing_image)
-    plt.axis('off')
-    
-    plt.subplot(1, 3, 2)
-    plt.title('生成結果', fontsize=14)
-    plt.imshow(predicted_skin)
-    plt.axis('off')
-    
-    plt.subplot(1, 3, 3)
-    plt.title('オリジナル', fontsize=14)
-    plt.imshow(original_image)
-    plt.axis('off')
-    
-    # タイトルがきちんと表示されるよう余白調整
-    plt.tight_layout()
-    
-    # 画像として保存
-    plt.savefig(os.path.join(output_dir, f"result_{file_name}"))
-    plt.close()
-    
-    # 生成された画像も個別に保存（PNG形式で）
-    predicted_skin_uint8 = (predicted_skin * 255).astype(np.uint8)
-    tf.io.write_file(
-        os.path.join(output_dir, f"pred_{file_name}"),
-        tf.image.encode_png(predicted_skin_uint8)
-    )
-    
-    print(f"推論完了: {file_name}")
-
-# バッチ処理版（より効率的な処理が必要な場合）
-def batch_inference(batch_size=16):
-    # ファイルのリストを取得
-    file_names = tf.data.Dataset.list_files(os.path.join(skins_dir, '*.png'))
-    
-    # 推論用データセット作成関数
-    def process_path(path):
-        file_name = tf.strings.split(path, os.sep)[-1]
-        input_image, _ = prepare_inference_sample(file_name)
-        return input_image, file_name
-    
-    # データセット作成
-    test_dataset = file_names.map(process_path).batch(batch_size).prefetch(tf.data.AUTOTUNE)
-    
-    # バッチ単位で推論
-    for batch_inputs, batch_filenames in test_dataset:
-        # 推論実行
-        batch_predictions = model.predict(batch_inputs)
-        
-        # 各予測結果を保存
-        for i, filename in enumerate(batch_filenames):
-            filename_str = filename.numpy().decode('utf-8')
-            pred_image = batch_predictions[i]
-            
-            # 画像として保存
-            pred_image_uint8 = (pred_image * 255).astype(np.uint8)
-            tf.io.write_file(
-                os.path.join(output_dir, f"pred_{filename_str}"),
-                tf.image.encode_png(pred_image_uint8)
-            )
-            
-        print(f"バッチ処理完了: {len(batch_filenames)}ファイル")
 
 # 単一画像の推論を行う関数（特定の画像に対して処理したい場合）
 def infer_single_image(filename):
     # 推論用サンプルを準備
     input_image, _ = prepare_inference_sample(filename)
     
-    # 推論実行
-    predicted_skin = model.predict(input_image)[0]
+    # # 推論実行
+    # predicted_skin = model.predict(input_image)[0]
+
+    predicted_skins = []
+    for model in models_dir.values():
+        predicted_skins.append(model.predict(input_image)[0])
     
     # 元の画像も読み込む（比較用）
     missing_path = os.path.join(missing_dir, f"missing_{filename}")
@@ -195,47 +169,37 @@ def infer_single_image(filename):
     original_image = load_image(original_path).numpy()
     
     # 結果の可視化と表示
-    plt.figure(figsize=(15, 5))
+    # plt.figure(figsize=(15, 5))
+    fig, axes = plt.subplots(1, 11, figsize=(18, 2))
     
-    plt.subplot(1, 3, 1)
-    plt.title('欠損画像', fontsize=14)
-    plt.imshow(missing_image)
-    plt.axis('off')
+    # 元の画像
+    axes[0].imshow(original_image)
+    axes[0].set_title('元画像', fontsize=14)
+    axes[0].axis('off')
+
+    # 欠損画像
+    axes[1].imshow(missing_image)
+    axes[1].set_title('欠損画像', fontsize=14)
+    axes[1].axis('off')
+
+    for i, (key, predicted_skin) in enumerate(zip(models_dir.keys(), predicted_skins)):
+        axes[i+2].imshow(predicted_skin)
+        axes[i+2].set_title(f'{key}損失', fontsize=14)
+        axes[i+2].axis('off')
     
-    plt.subplot(1, 3, 2)
-    plt.title('生成結果', fontsize=14)
-    plt.imshow(predicted_skin)
-    plt.axis('off')
-    
-    plt.subplot(1, 3, 3)
-    plt.title('オリジナル', fontsize=14)
-    plt.imshow(original_image)
-    plt.axis('off')
-    
-    # タイトルがきちんと表示されるよう余白調整
-    plt.tight_layout()
-    
-    plt.savefig(os.path.join(output_dir, f"result_{filename}"))
+    # # タイトルがきちんと表示されるよう余白調整
+    # plt.tight_layout()
+
     plt.show()
     
-    # 生成された画像も個別に保存
-    predicted_skin_uint8 = (predicted_skin * 255).astype(np.uint8)
-    tf.io.write_file(
-        os.path.join(output_dir, f"pred_{filename}"),
-        tf.image.encode_png(predicted_skin_uint8)
-    )
-    
-    return predicted_skin
+    return predicted_skins
 
 # メイン実行部分
 if __name__ == "__main__":
     # フォント設定の確認
     print("利用可能なフォント:")
     print(mpl.font_manager.findSystemFonts(fontpaths=None, fontext='ttf'))
-    
-    # 個別の画像で推論を実行する例
-    # infer_single_image("example.png")
-    
+
     # 全てのテスト画像で推論を実行
     print("個別推論処理を開始します...")
     for file_name in test_files:
